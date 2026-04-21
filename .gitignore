@@ -19,7 +19,6 @@ build/
 
 # App Data
 backend/uploads/
-*.mp4
 *.csv
 
 # OS
