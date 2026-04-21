@@ -86,3 +86,15 @@ A major bottleneck of standard tracking pipelines is counting vehicles *multiple
 - **Variable Camera Angles (Multi-Gate Imperative)**: I made the crucial assumption that the drone's position is rarely flawlessly parallel to the asphalt road. For static city cameras, a primitive mathematical integer y > fixedValue comparison suffices. In drones, the variable camera pitch and yaw heavily forces roads to tilt/warp diagonally. Thus, my solution mandates utilizing the interactive **SVG Multi-Gate Configuration Module**. By drawing logic lines natively over the exact frame, algorithms perfectly adapt to drone angles.
 - **WebSocket Network Saturation**: Serving purely uncompressed 1080p frames rapidly over a dual-Websocket continuously will ultimately throttle internal RAM caches or stall most basic browsers. I assumed analytical efficiency deeply outweighs pure visual aesthetic resolution playback during processing. Therefore, during generation, I force cv2 to compress frames aggressively and resize the UI stream scaling. This keeps the network JSON byte string exceedingly lightweight and secures the stability of the browser process during intense video analysis.
 - **Reporting Tally**: Given it now supports Multiple-Lines, I assumed that users require per-lane logic segregation. The processed payload is explicitly broken out (e.g., Line 1 count, Line 2 count) both in the Next.js visual dashboard and inside the temporary pandas DataFrame memory (reports_db) until physically exported to CSV by the user.
+
+---
+
+## 🎥 Video Guide(Demo)
+
+Watch the demonstration of the system in action below.
+
+<video src="./Guide_or_Demo.mp4" controls="controls" width="100%" style="max-width: 100%;">
+  Your browser does not support the video tag.
+</video>
+
+*(If the video does not play above, click [here](./Guide_or_Demo.mp4) to open it directly.)*
