@@ -59,7 +59,7 @@ async def get_first_frame(filename: str):
     return {"frame": frame_b64}
 
 @app.websocket("/ws/process/{filename}")
-async def process_video_ws(websocket: WebSocket, filename: str, position: float = 0.5, angle: float = 0.0):
+async def process_video_ws(websocket: WebSocket, filename: str, lines: str = "[]"):
     await websocket.accept()
     file_path = os.path.join(UPLOAD_DIR, filename)
     
@@ -68,7 +68,12 @@ async def process_video_ws(websocket: WebSocket, filename: str, position: float 
         await websocket.close()
         return
         
-    analyzer = DroneTrafficAnalyzer(line_position_ratio=position, line_angle_degrees=angle)
+    try:
+        parsed_lines = json.loads(lines)
+    except Exception:
+        parsed_lines = []
+        
+    analyzer = DroneTrafficAnalyzer(lines=parsed_lines)
     
     try:
         for result in analyzer.process_video(file_path):
@@ -81,6 +86,7 @@ async def process_video_ws(websocket: WebSocket, filename: str, position: float 
                 "frame": frame_b64,
                 "count": result["current_count"],
                 "progress": result["progress"] * 100,
+                "line_counts": result.get("line_counts", {})
             }
             await websocket.send_text(json.dumps(payload))
             
@@ -103,7 +109,8 @@ async def process_video_ws(websocket: WebSocket, filename: str, position: float 
             "status": "complete",
             "message": "Processing finished",
             "report_url": f"/download/{filename}",
-            "final_count": len(analyzer.counted_ids)
+            "final_count": len(analyzer.global_counted_ids),
+            "final_line_counts": { lid: len(ids) for lid, ids in analyzer.counted_ids.items() }
         }))
         
     except WebSocketDisconnect:

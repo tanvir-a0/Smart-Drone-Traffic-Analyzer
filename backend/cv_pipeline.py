@@ -5,15 +5,15 @@ import pandas as pd
 from ultralytics import YOLO
 
 class DroneTrafficAnalyzer:
-    def __init__(self, model_path="yolov8n.pt", line_position_ratio=0.5, line_angle_degrees=0.0):
+    def __init__(self, model_path="yolov8n.pt", lines=None):
         # We will use yolov8n.pt natively downloaded by ultralytics
         self.model = YOLO(model_path)
-        self.line_position_ratio = line_position_ratio # 0.5 means middle of frame horizontally
-        self.line_angle_degrees = line_angle_degrees
+        self.lines = lines if lines else []
         self.class_names = self.model.names
         # Target classes: car, motorcycle, bus, truck. COCO map: {2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck'}
         self.target_classes = [2, 3, 5, 7] 
-        self.counted_ids = set()
+        self.counted_ids = { l["id"]: set() for l in self.lines }
+        self.global_counted_ids = set()
         self.tracking_data = [] # For reporting: list of dicts
 
     def ccw(self, A, B, C):
@@ -33,20 +33,11 @@ class DroneTrafficAnalyzer:
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         
-        mid_y = height * self.line_position_ratio
-        mid_x = width / 2.0
-        theta = math.radians(self.line_angle_degrees)
-        dx = math.cos(theta)
-        dy = math.sin(theta)
-        
-        if abs(dx) > 0.0001:
-            t_left = -mid_x / dx
-            t_right = (width - mid_x) / dx
-            pt1 = (0, int(mid_y + t_left * dy))
-            pt2 = (width, int(mid_y + t_right * dy))
-        else:
-            pt1 = (int(mid_x), 0)
-            pt2 = (int(mid_x), height)
+        abs_lines = []
+        for l in self.lines:
+            pt1 = (int(l["x1"]/100.0 * width), int(l["y1"]/100.0 * height))
+            pt2 = (int(l["x2"]/100.0 * width), int(l["y2"]/100.0 * height))
+            abs_lines.append({"id": l["id"], "pt1": pt1, "pt2": pt2})
             
         track_history = {} # id -> list of track centers
         
@@ -62,9 +53,9 @@ class DroneTrafficAnalyzer:
                 frame_idx += 1
                 timestamp = frame_idx / fps if fps > 0 else 0
                 
-                # Draw counting line
-                cv2.line(frame, pt1, pt2, (0, 0, 255), 2)
-                cv2.putText(frame, "Counting Line", (pt1[0] + 10, pt1[1] - 10 if pt1[1] > 20 else pt1[1] + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                for l in abs_lines:
+                    cv2.line(frame, l["pt1"], l["pt2"], (0, 0, 255), 2)
+                    cv2.putText(frame, l["id"], (l["pt1"][0] + 10, l["pt1"][1] - 10 if l["pt1"][1] > 20 else l["pt1"][1] + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
                 boxes = results.boxes
                 if boxes is not None and boxes.id is not None:
@@ -86,21 +77,26 @@ class DroneTrafficAnalyzer:
                         class_name = self.class_names[cls]
                         
                         # check crossing
-                        if len(track) >= 2 and track_id not in self.counted_ids:
+                        if len(track) >= 2:
                             prev_c = track[-2]
                             curr_c = track[-1]
-                            if self.intersects(prev_c, curr_c, pt1, pt2):
-                                self.counted_ids.add(track_id)
-                                # Log data
-                                self.tracking_data.append({
-                                    "Track ID": track_id,
-                                    "Vehicle Type": class_name,
-                                    "Frame": frame_idx,
-                                    "Timestamp (s)": round(timestamp, 2)
-                                })
+                            for l in abs_lines:
+                                lid = l["id"]
+                                if track_id not in self.counted_ids[lid]:
+                                    if self.intersects(prev_c, curr_c, l["pt1"], l["pt2"]):
+                                        self.counted_ids[lid].add(track_id)
+                                        self.global_counted_ids.add(track_id)
+                                        # Log data
+                                        self.tracking_data.append({
+                                            "Track ID": track_id,
+                                            "Vehicle Type": class_name,
+                                            "Crossed Line": lid,
+                                            "Frame": frame_idx,
+                                            "Timestamp (s)": round(timestamp, 2)
+                                        })
                                 
                         # Draw annotations
-                        color = (0, 255, 0) if track_id in self.counted_ids else (255, 0, 0)
+                        color = (0, 255, 0) if track_id in self.global_counted_ids else (255, 0, 0)
                         cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
                         label = f"{class_name} #{track_id}"
                         cv2.putText(frame, label, (int(x1), int(y1) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
@@ -117,7 +113,8 @@ class DroneTrafficAnalyzer:
                 
                 yield {
                     "frame": frame_bytes,
-                    "current_count": len(self.counted_ids),
+                    "current_count": len(self.global_counted_ids),
+                    "line_counts": { lid: len(ids) for lid, ids in self.counted_ids.items() },
                     "progress": frame_idx / total_frames if total_frames > 0 else 0,
                     "total_frames": total_frames,
                     "frame_idx": frame_idx
